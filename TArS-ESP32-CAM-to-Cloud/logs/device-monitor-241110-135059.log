@@ -1,0 +1,26 @@
+
+Connecting to POCOs
+.
+ESP32-CAM IP Address: 192.168.113.20
+Connecting to server: ml-tars-571232848590.us-central1.run.app
+Connection successful!
+....................................................................................................
+
+Connecting to server: ml-tars-571232848590.us-central1.run.app
+Connection successful!
+.............................
+
+{"image_url":"https://storage.googleapis.com/tars-bucket-storage/detect-results/detection_20241110_065133.jpg","predictions":[{"class_id":1,"class_label":"paper","confidence":0.8900185227394104}]}
+
+Connecting to server: ml-tars-571232848590.us-central1.run.app
+Connection successful!
+............................
+
+{"image_url":"https://storage.googleapis.com/tars-bucket-storage/detect-results/detection_20241110_065203.jpg","predictions":[{"class_id":1,"class_label":"paper","confidence":0.9574317932128906}]}
+
+Connecting to server: ml-tars-571232848590.us-central1.run.app
+Connection successful!
+.........................
+
+{"image_url":"https://storage.googleapis.com/tars-bucket-storage/detect-results/detection_20241110_065233.jpg","predictions":[{"class_id":1,"class_label":"paper","confidence":0.902311384677887}]}
+

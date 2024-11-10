@@ -1,0 +1,13 @@
+Serial initialized
+Camera setup started.
+PSRAM found.
+E (783) camera: Camera probe failed with error 0x105(ESP_ERR_NOT_FOUND)
+Camera init failed.
+Access Point started
+
+192.168.4.1
+HTTP server started
+Wi-Fi disconnected, attempting to reconnect...
+....
+Reconnected to Wi-Fi successfully!
+IP Address: 192.168.138.20

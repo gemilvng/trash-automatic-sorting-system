@@ -1,0 +1,20 @@
+
+Connecting to POCOs
+.
+ESP32-CAM IP Address: 192.168.113.20
+Connecting to server: ml-tars-571232848590.us-central1.run.app
+Connection successful!
+....................................................................................................
+
+Connecting to server: ml-tars-571232848590.us-central1.run.app
+Connection successful!
+.....
+
+{"error":"No file provided"}
+
+Connecting to server: ml-tars-571232848590.us-central1.run.app
+Connection successful!
+......
+
+{"error":"No file provided"}
+
