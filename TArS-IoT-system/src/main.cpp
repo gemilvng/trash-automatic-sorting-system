@@ -38,19 +38,17 @@ void setup() {
     lcd.setCursor(5, 1); lcd.print("Starting");
     lcd.setCursor(4, 2); lcd.print("the device");
 
-    // Turn on red LED
-    // pinMode(38, OUTPUT); // pinMode(PIN, MODE)
-    // digitalWrite(38, HIGH); // digitalWrite(PIN, VALUE)
-
     // Ultrasonic sensor setup
 
-    // pinMode(PIN, MODE)
-    pinMode(TRIG_PIN_1, OUTPUT); pinMode(ECHO_PIN_1, INPUT); // parameter are integers but can use aliases
+    /* pinMode(PIN, MODE). parameter are in integers but can use aliases */
+    pinMode(TRIG_PIN_1, OUTPUT); pinMode(ECHO_PIN_1, INPUT);
     pinMode(TRIG_PIN_2, OUTPUT); pinMode(ECHO_PIN_2, INPUT);
     pinMode(TRIG_PIN_3, OUTPUT); pinMode(ECHO_PIN_3, INPUT);
-    //pinMode(TRIG_PIN_3, OUTPUT); pinMode(ECHO_PIN_3, INPUT);
+    
     delay(3000); // Wait for 3s
     lcd.clear(); // Clear the LCD screen
+
+    // Print the layout of data display
     lcd.setCursor(0, 0); lcd.print("Distance (in cm): ");
     lcd.setCursor(0, 1); lcd.print("sensor 1: ");
     lcd.setCursor(0, 2); lcd.print("sensor 2: ");
@@ -61,12 +59,17 @@ void loop() {
     // Start signal transmission and reception
 
     // First transmission
+
+    // Ensure the trigger is low at initial condition
     digitalWrite(TRIG_PIN_1, LOW); delayMicroseconds(2);
-    digitalWrite(TRIG_PIN_1, HIGH); delayMicroseconds(10); // emitting pulse
+
+    /* Emitting pulse for 10us, as per HC-SR04 datasheet
+    description about how it works */
+    digitalWrite(TRIG_PIN_1, HIGH); delayMicroseconds(10);
     digitalWrite(TRIG_PIN_1, LOW); delayMicroseconds(2);
-    duration_1 = pulseIn(ECHO_PIN_1, HIGH);
-    distance_1 = (duration_1 * 0.0343) / 2;
-    lcd.setCursor(10, 1); lcd.print(distance_1);
+    duration_1 = pulseIn(ECHO_PIN_1, HIGH); // Reads the bounce-back signal
+    distance_1 = (duration_1 * 0.0343) / 2; // Calculate the distance
+    lcd.setCursor(10, 1); lcd.print(distance_1); // Print the distance to the LCD
     delay(1000); // Wait for 1s
 
     // Second transmission
