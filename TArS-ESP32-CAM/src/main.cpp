@@ -28,10 +28,17 @@ HTTP Server Configuration*/
 #define INDICATOR_PIN 33
 
 // Declaring global variable for storing IP address
-IPAddress camera_IP;
+//IPAddress staticIP(192, 168, 1, 100); // Static IP address
+//IPAddress gateway(192, 168, 1, 1); // Gateway IP address
+//IPAddress subnet(255, 255, 255, 0); // Subnet mask
+IPAddress camera_IP; // Global variable for storing camera IP address
 
 // Setting up Web Server
 WebServer server(80); // 80 is for HTTP
+
+// Array for response
+int values[] = {60, 90, 120};
+int randomValue;
 
 // String for storing the HTTP response
 String http_response;
@@ -211,7 +218,8 @@ void handleTakePhoto() {
     EEPROM.commit();
 
     // Send HTTP response to the client
-    http_response = "New photo is taken: " + path;
+    randomValue = values[random(0, 3)];
+    http_response = String(randomValue);
     server.send(200, "text/plain", http_response);
     Serial.println("New photo is taken" + path);
 }
@@ -247,6 +255,7 @@ void setup() {
     This pin behavior is different than the usual. */
     digitalWrite(INDICATOR_PIN, HIGH);
 
+    //WiFi.config(staticIP, gateway, subnet);
     WiFi.begin(ssid, password); // Attempting to connect to Wi-Fi network
     while (WiFi.status() != WL_CONNECTED) {
         delay(3000);
