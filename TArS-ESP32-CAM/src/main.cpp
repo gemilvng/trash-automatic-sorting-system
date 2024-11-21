@@ -37,7 +37,6 @@ IPAddress camera_IP; // Global variable for storing camera IP address
 WebServer server(80); // 80 is for HTTP
 
 // Array for response
-int values[] = {60, 90, 120};
 int randomValue;
 
 // String for storing the HTTP response
@@ -218,7 +217,7 @@ void handleTakePhoto() {
     EEPROM.commit();
 
     // Send HTTP response to the client
-    randomValue = values[random(0, 3)];
+    randomValue = random(0, 3);
     http_response = String(randomValue);
     server.send(200, "text/plain", http_response);
     Serial.println("New photo is taken" + path);
@@ -232,7 +231,7 @@ void handleNotFound() {
 }
 
 void setup() {
-    delay(60); // Short delay
+    delay(100); // Short delay
 
     Serial.begin(115200); // Initialize serial communication
 

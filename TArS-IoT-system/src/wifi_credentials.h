@@ -1,4 +1,4 @@
 /* This contains credentials information 
 to connect to the WiFi network */
-const char* ssid = "Gemilang";
-const char* password = "plisbisaconnect10";
+const char* ssid = "SRIS FAMILY";
+const char* password = "pipangkatsatu";
