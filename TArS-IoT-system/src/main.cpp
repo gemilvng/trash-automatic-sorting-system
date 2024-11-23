@@ -4,7 +4,7 @@
 #include <ESP32Servo.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include "wifi_credentials.h"
+#include <WebServer.h>
 
 /* LCD config */
 LiquidCrystal_I2C lcd(0x27, 20, 4); // 0x27 as I2C address, 20 as columns, 4 as rows
@@ -25,16 +25,42 @@ const int PLASTIC_BOTTLE = 135;
 const int TRIG_PIN_1 = 4; const int ECHO_PIN_1 = 5; // 1st
 const int TRIG_PIN_2 = 6; const int ECHO_PIN_2 = 7; // 2nd
 const int TRIG_PIN_3 = 1; const int ECHO_PIN_3 = 2; // 3rd
-long duration; // variable to hold signal measurement duration
-float distance; // variable to hold distance measurement
+float capacity[3]; // variable to hold the capacity of the trash bin
+String capacityJSON;
 /* End of ultrasonic sensor config */
 
-/* HTTP-related config */
-bool httpFlag = 0;
-HTTPClient esp32s3HTTPClient;
-const int BUTTON_PIN = 47; // Button pin to send HTTP request
+/* Network config */
+// Include the Wi-Fi credentials
+#include "wifi_credentials.h"
+
+// Flag to control how the ESP32-S3 behave
+bool clientModeFlag = false;
+bool serverModeFlag = true;
+
+//Declaring global variable for storing IP address
+IPAddress ipS3;
+
+// Setting up Web Server
+WebServer serverESP32S3(80);
+
+// Setting up HTTP Client
+HTTPClient clientESP32S3;
+
+// String for storing the IP address of the ESP32-CAM
+String ipCAM;
+
+// String for storing the HTTP response
+String httpPayload;
+
+// Interrupt setup to trigger request to camera over network
+const int BUTTON_PIN = 47;
 unsigned long button_time = 0;
 unsigned long last_button_time = 0;
+
+// String for storing cloud server address
+String cloudServerURL = "ml-tars-571232848590.us-central1.run.app";
+String servicePath = "/predict";
+/* End of network config */
 
 /*Type of trash: 
     1 for cardboard, 
@@ -45,8 +71,11 @@ int trashType;
 
 // Ultrasonic sensor task
 void taskUltrasonicTXRX(int triggerPin, int echoPin) {
-    // Start signal transmission and reception
+    //local variables to hold the duration and distance
+    long duration;
+    float distance;
 
+    // Start signal transmission and reception
     // Ensure the trigger is low at initial condition
     digitalWrite(triggerPin, LOW); delayMicroseconds(2);
 
@@ -58,12 +87,15 @@ void taskUltrasonicTXRX(int triggerPin, int echoPin) {
     distance = (duration * 0.0343) / 2; // Calculate the distance
     switch (echoPin) {
         case 5:
+        capacity[0] = (distance / 50) * 100;
         lcd.setCursor(10, 1); lcd.print(distance);
         break;
         case 7:
+        capacity[1] = (distance / 50) * 100;
         lcd.setCursor(10, 2); lcd.print(distance);
         break;
         case 2:
+        capacity[2] = (distance / 50) * 100;
         lcd.setCursor(10, 3); lcd.print(distance);
         break;
     }
@@ -108,22 +140,48 @@ void taskKinematics(int trashType) {
     }
 }
 
-void taskHTTPRequest() {
-    lcd.clear();
-    lcd.setCursor(0, 0); lcd.print("Hold your trash");
-    lcd.setCursor(0, 1); lcd.print("in front of camera.");
-    lcd.setCursor(0, 2); lcd.print("Identifying,");
-    lcd.setCursor(0, 3); lcd.print("Please wait...");
-    esp32s3HTTPClient.begin("http://192.168.1.8/takephoto");
-    int httpResponseCode = esp32s3HTTPClient.GET();
-    if (httpResponseCode == 200) {
-        String payload = esp32s3HTTPClient.getString();
-        trashType = payload.toInt();
-    } else {
+void taskHTTPRequestToCAM() {
+    if (ipCAM.length() == 0) {
         lcd.clear();
-        lcd.setCursor(0, 0); lcd.print("Request failed.");
+        lcd.setCursor(0, 0); lcd.print("Cannot reach the camera.");
+        lcd.setCursor(0, 1); lcd.print("Request failed.");
+    } else if (ipCAM.length() > 0) {
+        lcd.clear();
+        lcd.setCursor(0, 0); lcd.print("Hold your trash");
+        lcd.setCursor(0, 1); lcd.print("in front of camera.");
+        clientESP32S3.begin("http://" + ipCAM + "/takephoto");
+        int httpResponseCode = clientESP32S3.GET();
+        if (httpResponseCode == 200) {
+            httpPayload = clientESP32S3.getString();
+            lcd.clear();
+            lcd.setCursor(0, 0); lcd.print("Identifying,");
+            lcd.setCursor(0, 1); lcd.print("Please wait...");
+        } else if (httpResponseCode == 500) {
+            httpPayload = clientESP32S3.getString();
+            lcd.clear();
+            lcd.setCursor(0, 0); lcd.print(httpPayload);
+        }
+        clientESP32S3.end();
     }
-    esp32s3HTTPClient.end();
+    bool clientModeFlag = false;
+    bool serverModeFlag = true;
+}
+
+void taskHTTPPOSTtoCloud() {
+    capacityJSON = "{\"Metal\": " + String(capacity[0]) + ", \"Plastic\": " + String(capacity[1]) + ", \"Cardboard\": " + String(capacity[2]) + "}";
+    clientESP32S3.begin(cloudServerURL + servicePath);
+    clientESP32S3.addHeader("Content-Type", "application/json");
+    int httpResponseCode = clientESP32S3.POST(capacityJSON);
+    if (httpResponseCode == 200) {
+        httpPayload = clientESP32S3.getString();
+        lcd.clear();
+        lcd.setCursor(0, 0); lcd.print("Data sent to cloud.");
+    } else if (httpResponseCode == 500) {
+        httpPayload = clientESP32S3.getString();
+        lcd.clear();
+        lcd.setCursor(0, 0); lcd.print(httpPayload);
+    }
+    clientESP32S3.end();
 }
 
 // Task for handling button input
@@ -131,7 +189,8 @@ void taskHTTPRequest() {
 void IRAM_ATTR taskFlagSetter() {
   button_time = millis();
   if (button_time - last_button_time > 2000) { // 250 is debounce delay
-    httpFlag = 1;
+    bool clientModeFlag = true;
+    bool serverModeFlag = false;
     last_button_time = button_time;
   }
 }
@@ -142,6 +201,31 @@ void taskDisplay() {
     lcd.setCursor(0, 1); lcd.print("sensor 1: ");
     lcd.setCursor(0, 2); lcd.print("sensor 2: ");
     lcd.setCursor(0, 3); lcd.print("sensor 3: ");
+}
+
+void handlePredictionResult() {
+    if (serverESP32S3.hasArg("plain")) {
+        if (serverESP32S3.arg("plain").length() < 2) {
+            trashType = serverESP32S3.arg("plain").toInt();
+            serverESP32S3.send(200, "text/plain", "Data received.");
+            taskKinematics(trashType);
+            delay(1000);
+            taskUltrasonicTXRX(TRIG_PIN_1, ECHO_PIN_1);
+            taskUltrasonicTXRX(TRIG_PIN_2, ECHO_PIN_2);
+            taskUltrasonicTXRX(TRIG_PIN_3, ECHO_PIN_3);
+        } else {
+            httpPayload = serverESP32S3.arg("plain");
+            lcd.setCursor(0, 0); lcd.print(httpPayload);
+            serverESP32S3.send(400, "text/plain", "Invalid request.");
+            delay(1000);
+        }
+    }
+}
+
+void handleNotFound() {
+    httpPayload = "404 Not Found";
+    serverESP32S3.send(404, "text/plain", httpPayload);
+    Serial.println("404 Not Found");
 }
 
 void setup() {
@@ -208,7 +292,7 @@ void loop() {
     if (httpFlag == 0) {
         return;
     } else if (httpFlag == 1) {
-        taskHTTPRequest();
+        taskHTTPRequestToCAM();
         taskKinematics(trashType);
         taskDisplay();
         taskUltrasonicTXRX(TRIG_PIN_1, ECHO_PIN_1);

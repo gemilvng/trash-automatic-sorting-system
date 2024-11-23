@@ -3,6 +3,7 @@
 // library for wireless communication
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>
 
 // library for the file system with microSD card
 #include <FS.h>
@@ -19,34 +20,40 @@
 // library for EEPROM
 #include "EEPROM.h"
 
-/* This area down below is for Wi-Fi and
-HTTP Server Configuration*/
+/* Network Config */
 // Include Wi-Fi credentials file, this is not a library
 #include "wifi_credentials.h"
+
+// Flag to control how the ESP32-CAM will behave
+bool clientModeFlag = false;
+bool serverModeFlag = true;
 
 // Define pin for Wi-Fi connection indicator
 #define INDICATOR_PIN 33
 
 // Declaring global variable for storing IP address
-//IPAddress staticIP(192, 168, 1, 100); // Static IP address
-//IPAddress gateway(192, 168, 1, 1); // Gateway IP address
-//IPAddress subnet(255, 255, 255, 0); // Subnet mask
-IPAddress camera_IP; // Global variable for storing camera IP address
+IPAddress ipCAM; // Global variable for storing camera IP address
+String ipS3; // Global variable for storing ESP32-S3 IP address
 
 // Setting up Web Server
-WebServer server(80); // 80 is for HTTP
+WebServer serverESP32CAM(80); // 80 is for HTTP
 
-// Array for response
-int randomValue;
+// Setting up HTTP client
+HTTPClient clientESP32CAM;
 
-// String for storing the HTTP response
-String http_response;
-/* End of HTTP Server Setup */
+// String for storing the HTTP payload
+String httpPayload;
 
-/* The area down below is for camera 
-configuration and setup */
+// String for storing cloud server address
+String cloudServerURL = "ml-tars-571232848590.us-central1.run.app";
+String servicePath = "/predict";
 
-// EEPROM Configuration
+// Flag for HTTP POST to cloud server
+bool postToCloud = false;
+/* End of Network Config */
+
+/* Camera configuration and setup */
+// EEPROM Configuration. EEPROM value is used for unique image numbering
 #define EEPROM_SIZE 1
 
 // Define pin for camera configuration
@@ -72,10 +79,22 @@ configuration and setup */
 unsigned int pictureCount = 0;
 
 // Defining path variable for the new photo to be saved in microSD card
-String path = "NULL";
+String imagePath = "NULL";
+
+// Variable to store prediction result
+String predictionResult = "NULL";
+
+bool initCamera = false;
+bool captureImage = false;
+bool saveImage = false;
+/* End of camera config*/
+
+/* SD card configuration */
+bool initMicroSD = false;
+/* End of SD card config */
 
 // Defining task to configure ESP Camera
-void taskESPCamConfig() {
+void taskInitCamera() {
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -111,6 +130,7 @@ void taskESPCamConfig() {
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
         Serial.printf("Camera init failed with error 0x%x", err);
+        initCamera = false;
         return;
     }
     
@@ -162,6 +182,7 @@ void taskESPCamConfig() {
     // COLOR BAR PATTERN (0 = Disable , 1 = Enable)
     s->set_colorbar(s, 0);
     Serial.println("Camera Initialized");
+    initCamera = true;
 }
 
 // Defining task to configure SD Card
@@ -169,64 +190,130 @@ void taskInitMicroSD() {
     Serial.println("Mounting MicroSD Card");
     if (!SD_MMC.begin()) {
         Serial.println("Error mounting MicroSD Card");
+        initMicroSD = false;
         return;
     }
     uint8_t cardType = SD_MMC.cardType();
     if (cardType == CARD_NONE) {
         Serial.println("No SD Card attached");
+        initMicroSD = false;
         return;
     }
     Serial.println("MicroSD Card Initialized");
+    initMicroSD = true;
 }
 
 // Defining Task to take a new photo
-void taskTakeNewPhoto(String path) {
+void taskCaptureImage(String path) {
     camera_fb_t * fb = esp_camera_fb_get();
 
     if (!fb) {
         Serial.println("Camera capture failed");
+        captureImage = false;
         return;
     }
     Serial.println("Photo captured successfully");
+    captureImage = true;
 
     // Save picture to MicroSD Card
     fs::FS &fs = SD_MMC;
     File file = fs.open(path.c_str(), FILE_WRITE);
     if (!file) {
         Serial.println("Failed to open file in write mode");
+        saveImage = false;
     } else {
         file.write(fb->buf, fb->len);
         Serial.printf("Saved file to path: %s\n", path.c_str());
     }
     file.close();
     esp_camera_fb_return(fb);
+    saveImage = true;
+}
+
+//Task to make HTTP POST request to cloud server
+void taskHTTPPOSTtoCloud(String path) {
+    fs::FS &fs = SD_MMC;
+    File file = fs.open(path.c_str(), FILE_READ); // Open file system in read mode
+    if (!file) { // Read: If file is not opened ...
+        Serial.println("Failed to open file in read mode");
+        postToCloud = false;
+        return;
+    }
+    // Convert image file to buffer
+    size_t fileSize = file.size();
+    uint8_t *imageBuffer = new uint8_t[fileSize];
+    file.read(imageBuffer, fileSize);
+    file.close();
+
+    clientESP32CAM.begin(cloudServerURL + servicePath);
+    clientESP32CAM.addHeader("Content-Type", "image/jpeg");
+    int httpResponseCode = clientESP32CAM.POST(imageBuffer, fileSize);
+    if (httpResponseCode == 200) {
+        predictionResult = clientESP32CAM.getString();
+    } else {
+        Serial.println("HTTP POST request failed");
+        postToCloud = false;
+    }
+    clientESP32CAM.end();
+    postToCloud = true;
+    delete[] imageBuffer;
+}
+
+// Task to make HTTP request to ESP32-S3
+void taskHTTPPOSTToS3() {
+    if (ipS3.length() == 0) {
+        return;
+    } else if (ipS3.length() > 0) {
+        clientESP32CAM.begin("http://" + ipS3 + "/predictionresult");
+        clientESP32CAM.addHeader("Content-Type", "text/plain");
+        if (postToCloud == false) {
+            httpPayload = "Request Failed.";
+            int httpResponseCode = clientESP32CAM.POST(httpPayload);
+        } else if (postToCloud == true) {
+            int httpResponseCode = clientESP32CAM.POST(predictionResult);
+        }
+        clientESP32CAM.end();
+    }
 }
 
 // Handler function for HTTP request to take a new photo
-void handleTakePhoto() {
+void handleImageCapture() {
+    // Check if SD card and camera initialized properly
+    if (initCamera == false || initMicroSD == false) {
+        httpPayload = "Hardware Failure.";
+        serverESP32CAM.send(500, "text/plain", httpPayload);
+        Serial.println("Hardware Failure.");
+        return;
+    }
+
     /* Take value in EEPROM and increment it, then embed it
     to path string to make the picture name unique */ 
     pictureCount = EEPROM.read(0) + 1;
-    path = "/picture" + String(pictureCount) + ".jpg";
+    imagePath = "/picture" + String(pictureCount) + ".jpg";
 
     // Calling task to take a new photo
-    taskTakeNewPhoto(path);
+    taskCaptureImage(imagePath);
+    if (captureImage == false || saveImage == false) {
+        httpPayload = "Capture/Save Failed.";
+        serverESP32CAM.send(500, "text/plain", httpPayload);
+        Serial.println("Failed to take a new photo");
+        return;
+    }
 
-    /* Update the value in EEPROM */
+    /* Update the value in EEPROM, if image captured*/
     EEPROM.write(0, pictureCount);
     EEPROM.commit();
 
+    httpPayload = imagePath;
     // Send HTTP response to the client
-    randomValue = random(0, 3);
-    http_response = String(randomValue);
-    server.send(200, "text/plain", http_response);
-    Serial.println("New photo is taken" + path);
+    serverESP32CAM.send(200, "text/plain", httpPayload);
+    Serial.println("New photo is taken" + imagePath);
 }
 
 // Handler function for HTTP request to handle 404 error
 void handleNotFound() {
-    http_response = "404 Not Found";
-    server.send(404, "text/plain", http_response);
+    httpPayload = "404 Not Found";
+    serverESP32CAM.send(404, "text/plain", httpPayload);
     Serial.println("404 Not Found");
 }
 
@@ -241,7 +328,7 @@ void setup() {
     
     // Initialize Camera
     Serial.println("Initializing Camera...");
-    taskESPCamConfig();
+    taskInitCamera();
 
     // Initialize MicroSD Card
     Serial.println("Initializing MicroSD Card...");
@@ -270,22 +357,22 @@ void setup() {
         delay(1000);
     }
 
-    camera_IP = WiFi.localIP(); // Store local IP address to global variable
+    ipCAM = WiFi.localIP(); // Store local IP address to global variable
 
     // Print the IP address of the camera when connection is established
-    Serial.println("Connected. camera IP address: " + camera_IP.toString());
+    Serial.println("Connected. camera IP address: " + ipCAM.toString());
     digitalWrite(INDICATOR_PIN, LOW); // Turn on Indicator LED, Wi-Fi is connected
 
     // Setup the Web Server
-    server.on("/takephoto", HTTP_GET, handleTakePhoto);
-    server.onNotFound(handleNotFound);
-    server.begin(); // Start the server
+    serverESP32CAM.on("/takephoto", HTTP_GET, handleImageCapture);
+    serverESP32CAM.onNotFound(handleNotFound);
+    serverESP32CAM.begin(); // Start the server
     Serial.println("HTTP server started");
 }
 
 void loop() {
     if (WiFi.status() == WL_CONNECTED) {
-        server.handleClient(); // Check for incoming connection
+        serverESP32CAM.handleClient(); // Check for incoming connection
     } else {
         do {
             digitalWrite(INDICATOR_PIN, HIGH); // Turn off LED, Wi-Fi is disconnected
@@ -293,6 +380,6 @@ void loop() {
             delay(3000);
         } while (WiFi.status() != WL_CONNECTED);
         digitalWrite(INDICATOR_PIN, LOW); // Turn on Indicator LED after reconnection
-        Serial.println("Connected. camera IP address: " + camera_IP.toString());
+        Serial.println("Connected. camera IP address: " + ipCAM.toString());
     }
 }
