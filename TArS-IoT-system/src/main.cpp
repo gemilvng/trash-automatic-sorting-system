@@ -30,7 +30,6 @@ String capacityJSON;
 
 /* Network config */
 // Include the Wi-Fi credentials
-#include "wifi_credentials.h"
 // Include the cloud server URL
 #include "serverCredentials.h"
 
@@ -167,6 +166,14 @@ void taskHTTPPOSTtrigger() {
     doHTTPPOSTtrigger = false;
 }
 
+void taskHTTPGETprediction() {
+    clientESP32S3.begin(predictURL);
+    int httpResponseCode = clientESP32S3.GET();
+    if (httpResponseCode == 200) {
+
+    }
+}
+
 // Task for handling button input
 // reading: https://lastminuteengineers.com/handling-esp32-gpio-interrupts-tutorial/
 void IRAM_ATTR taskFlagSetter() {
@@ -177,6 +184,7 @@ void IRAM_ATTR taskFlagSetter() {
   }
 }
 
+// Task for displaying layout of data
 void taskDisplay() {
     lcd.clear();
     lcd.setCursor(0, 0); lcd.print("Capacity (%): ");
@@ -222,7 +230,7 @@ void setup() {
     /* End of flag setter setup*/
 
     /*Wi-Fi setup*/
-    WiFi.begin(ssid, password);
+    //WiFi.begin(ssid, password);
     lcd.clear();
     lcd.setCursor(0, 0); lcd.print("Wi-Fi status: ");
     lcd.setCursor(0, 1);
