@@ -30,6 +30,7 @@ String capacityJSON;
 
 /* Network config */
 // Include the Wi-Fi credentials
+#include "wifiCredentials.h"
 // Include the cloud server URL
 #include "serverCredentials.h"
 
@@ -230,7 +231,7 @@ void setup() {
     /* End of flag setter setup*/
 
     /*Wi-Fi setup*/
-    //WiFi.begin(ssid, password);
+    WiFi.begin(ssid, password);
     lcd.clear();
     lcd.setCursor(0, 0); lcd.print("Wi-Fi status: ");
     lcd.setCursor(0, 1);
