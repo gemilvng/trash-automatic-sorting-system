@@ -1,3 +1,4 @@
+// Library for using the arduino framework to program ESP32-CAM
 #include <Arduino.h>
 
 // library for wireless communication
@@ -12,36 +13,44 @@
 #include "esp_camera.h"
 #include "driver/rtc_io.h"
 
-//library to disable brownour problems
+// library to disable brownour problems
 #include "soc/soc.h" 
 #include "soc/rtc_cntl_reg.h"
 
-// library for EEPROM
+// library for emulating EEPROM functionality in ESP32-CAM
 #include "EEPROM.h"
 
-/* Network Config */
-// Include Wi-Fi credentials file, this is not a library
+/* Network and Wi-Fi related Config
+- Include wifi_credentials.h file for Wi-Fi credentials
+- Include serverCredentials.h file for server credentials
+- Define pin for Wi-Fi connection indicator (INDICATOR_PIN)
+- Creating object instance of HTTPClient: clientESP32CAM
+- Setting up flag as boolean variable to control HTTP request
+    - doHTTPPOSTimage: flag to control HTTP POST request to send image to server
+    - Is set to false so the image is not taken before an event occurs
+*/
 #include "wifi_credentials.h"
 #include "serverCredentials.h"
 
-// Define pin for Wi-Fi connection indicator
 #define INDICATOR_PIN 33
 
-// Declaring global variable for storing IP address
-IPAddress ipCAM; // Global variable for storing camera IP address
-
-// Setting up HTTP client
 HTTPClient clientESP32CAM;
 
-// Flag for HTTP POST to cloud server
 bool doHTTPPOSTimage = false;
-/* End of Network Config */
 
-/* Camera configuration and setup */
-// EEPROM Configuration. EEPROM value is used for unique image numbering
+/* Camera config
+- Define EEPROM_SIZE to record the number of images taken
+- Define GPIO pins for camera configuration
+- Initialize pictureCount variable as a unique ID for each image
+- Initialize imagePath variable (string) to store the path of each image taken
+- Initialize flags for camera configuration
+    - initCamera: flag to check camera initialization status
+    - captureImage: flag to check image capture status
+    - saveImage: flag to check whether image is saved to SD card or not
+    - initMicroSD: flag to check SD card initialization status
+*/
 #define EEPROM_SIZE 1
 
-// Define pin for camera configuration
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -60,24 +69,24 @@ bool doHTTPPOSTimage = false;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// Counter for the number of pictures taken
 unsigned int pictureCount = 0;
 
-// Defining path variable for the new photo to be saved in microSD card
 String imagePath = "NULL";
 
-// Flag for camera configuration
 bool initCamera = false;
 bool captureImage = false;
 bool saveImage = false;
-/* End of camera config*/
-
-/* SD card configuration */
-// Flag for SD card configuration
 bool initMicroSD = false;
-/* End of SD card config */
 
-// Defining task to configure ESP Camera
+/* taskInitCamera() function
+- Initialize camera using esp_camera_init() function
+- Implementing error handling with if-else statement
+    - Ensure certain settings selected only if device has PSRAM
+    - Ensure camera is properly initialized before executing other tasks
+- Camera settings for brightness, contrast, etc.
+- Set initCamera flag to true if all executed properly
+- Further reading: https://dronebotworkshop.com/esp32-cam-microsd/
+*/
 void taskInitCamera() {
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
@@ -167,36 +176,52 @@ void taskInitCamera() {
     initCamera = true;
 }
 
-// Defining task to configure SD Card
+/* taskInitMicroSD() function
+- Initialize MicroSD card configuration
+- Implementing error handling with if-else statement
+    - Check if MicroSD card interfacing done properly with SD_MMC.begin() function
+    - Check if there is valid no card inserted with cardType() function
+- Set initMicroSD flag to true if MicroSD card initialized properly
+*/
 void taskInitMicroSD() {
-    if (!SD_MMC.begin()) { // Read: If MicroSD Card failed to mount ...
+    if (!SD_MMC.begin()) {
         initMicroSD = false;
         return;
     }
     uint8_t cardType = SD_MMC.cardType();
-    if (cardType == CARD_NONE) { // Read: If there is no SD Card attached ...
+    if (cardType == CARD_NONE) {
         initMicroSD = false;
         return;
     }
     initMicroSD = true;
 }
 
-// Defining Task to take a new photo
+/* taskCaptureImage() function
+- Capture image from camera using esp_camera_fb_get() function
+- Set captureImage flag to true if image captured properly
+- Implementing error handling with if-else statement
+    - Check if camera failed to capture image by examining fb variable
+    - Check if file is not opened by examining file variable
+- Creating object instance of File: file, an empty file, with path as reference
+- Write image buffer to file with file.write() function
+- Release the memory allocated for image buffer with esp_camera_fb_return() function
+- Release the memory allocated for file with .close() method
+- Set saveImage flag to true if image saved properly
+*/
 void taskCaptureImage(String path) {
     camera_fb_t * fb = esp_camera_fb_get();
 
-    if (!fb) { // Read: If camera failed to capture image ...
+    if (!fb) {
         captureImage = false;
         return;
     }
     captureImage = true;
 
-    // Save picture to MicroSD Card
     fs::FS &fs = SD_MMC;
     File file = fs.open(path.c_str(), FILE_WRITE);
-    if (!file) { // Read: If file is not opened ...
+    if (!file) {
         saveImage = false;
-    } else { // Read: If file is opened ...
+    } else {
         file.write(fb->buf, fb->len);
     }
     file.close();
@@ -204,64 +229,93 @@ void taskCaptureImage(String path) {
     saveImage = true;
 }
 
-// Task to get trigger from HTTP request to capture image
+/* taskHTTPGETtrigger() function
+- Check for trigger to capture image with HTTP GET request
+- Trigger is set by button attached to ESP32-S3
+- Implementing error handling with if-else statement
+    - Check if camera or MicroSD card is not initialized properly
+- Start HTTP connection with .begin() method
+- Parse HTTP response code with .GET() method
+- Get payload from HTTP response with .getString() method
+- Handling HTTP response code and payload with if-else statement
+    - Check if HTTP response code is 200
+    - Check if payload contains "true" string
+        - Construct path with string concatenation
+        - Call taskCaptureImage() function with path as parameter
+        - Increment pictureCount by 1, only if image is captured
+    - Check if HTTP response code is 500
+- Terminate HTTP connection with .end() method
+*/
 void taskHTTPGETtrigger() {
-    // Check if SD card and camera initialized properly
     if (initCamera == false || initMicroSD == false) {
         return;
     }
 
-    clientESP32CAM.begin(getStatusURL); // check for trigger to capture image with HTTP GET request
+    clientESP32CAM.begin(getStatusURL);
     int httpResponseCode = clientESP32CAM.GET();
-    String httpPayload = clientESP32CAM.getString(); // Get payload from HTTP response, either "true" or "false"
-    int isPayloadTrue = httpPayload.indexOf("true");
+    String HTTPpayloadJSON = clientESP32CAM.getString();
+    int isPayloadTrue = HTTPpayloadJSON.indexOf("true");
 
     if (httpResponseCode == 200) {
-        for (int i = 0; i < 2; i++) { // Blink LED twice, indicating 200 OK status code
+        for (int i = 0; i < 2; i++) {
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
             digitalWrite(INDICATOR_PIN, LOW); delay(1000);
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
         }
-        // Check if there is "true" in the payload
-        if (isPayloadTrue != -1) { // Read: If there is a trigger to capture image ...
+
+        if (isPayloadTrue != -1) {
             pictureCount = EEPROM.read(0) + 1;
             imagePath = "/picture" + String(pictureCount) + ".jpg";
-            taskCaptureImage(imagePath); // Capture image
+            taskCaptureImage(imagePath);
             if (captureImage == false || saveImage == false) {
                 clientESP32CAM.end();
                 return;
             } else {
-                EEPROM.write(0, pictureCount); // Update EEPROM value
+                EEPROM.write(0, pictureCount);
                 EEPROM.commit();
                 doHTTPPOSTimage = true;
             }
-        } else { // Read: If there is no trigger to capture image ...
-            clientESP32CAM.end(); // Terminating HTTP connection
+        } else {
+            clientESP32CAM.end();
             return;
         }
     } else if (httpResponseCode == 500) {
-        for (int i = 0; i < 5; i++) { // Blink LED five times, indicating 500 status code
+        for (int i = 0; i < 5; i++) {
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
             digitalWrite(INDICATOR_PIN, LOW); delay(1000);
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
         }
-        clientESP32CAM.end(); // Terminating HTTP connection
+        clientESP32CAM.end();
         return;
     }
-    clientESP32CAM.end(); // Terminating HTTP connection
+    clientESP32CAM.end();
 }
 
-//Task to make HTTP POST request to send image to cloud server
+/* taskHTTPPOSTimage() function
+- Send image to server with HTTP POST request
+- Open the saved image file with .open() method and path as reference
+- Read file size with .size() method
+- Create image buffer imageBuffer in size of fileSize
+- Copy the file content to imageBuffer with .read() method
+- Construct HTTP POST request in multipart/form-data format
+    - Create components of multipart/form-data header and footer
+    - Using .reserve() method to reserve memory for HTTPpayloadJSON
+- Start HTTP connection with .begin() method
+- Send HTTP POST request with .POST() method
+- Parse HTTP response code with .POST() method and blink LED accordingly
+- Terminate HTTP connection with .end() method
+- Set doHTTPPOSTimage flag to false to ensure task is only executed once
+*/
 void taskHTTPPOSTimage(String path) {
     fs::FS &fs = SD_MMC;
-    File file = fs.open(path.c_str(), FILE_READ); // Open file system in read mode
-    if (!file) { // Read: If file is not opened ...
+    File file = fs.open(path.c_str(), FILE_READ);
+    if (!file) {
         return;
     }
 
-    size_t fileSize = file.size(); // Get file size
-    std::vector<uint8_t> imageBuffer(fileSize); // Create buffer in size of file
-    file.read(imageBuffer.data(), fileSize); // Read file to buffer
+    size_t fileSize = file.size();
+    std::vector<uint8_t> imageBuffer(fileSize);
+    file.read(imageBuffer.data(), fileSize);
     file.close();
 
     /* Create HTTP POST structure with data concatenation.
@@ -277,36 +331,37 @@ void taskHTTPPOSTimage(String path) {
 
     <imageBuffer>
     --ThisIsTheRequestBoundary--
-    */
+    */   
+    
     String boundary = "RequestBoundary";
     String headerRequest = "--" + boundary + "\r\n";
     String footerRequest = "\r\n--" + boundary + "--\r\n";
     headerRequest += "Content-Disposition: form-data; name=\"file\"; filename=\"payload.jpg\"\"\r\n";
     headerRequest += "Content-Type: image/jpeg\r\n\r\n";
     size_t contentLength = headerRequest.length() + fileSize + footerRequest.length();
-    std::vector<uint8_t> payload;
-    payload.reserve(contentLength); // Reserve memory for payload
-    payload.insert(payload.end(), headerRequest.begin(), headerRequest.end());
-    payload.insert(payload.end(), imageBuffer.begin(), imageBuffer.end());
-    payload.insert(payload.end(), footerRequest.begin(), footerRequest.end());
+    std::vector<uint8_t> HTTPpayloadJSON;
+    HTTPpayloadJSON.reserve(contentLength);
+    HTTPpayloadJSON.insert(HTTPpayloadJSON.end(), headerRequest.begin(), headerRequest.end());
+    HTTPpayloadJSON.insert(HTTPpayloadJSON.end(), imageBuffer.begin(), imageBuffer.end());
+    HTTPpayloadJSON.insert(HTTPpayloadJSON.end(), footerRequest.begin(), footerRequest.end());
     clientESP32CAM.begin(predictURL);
     clientESP32CAM.addHeader("Content-Type", "multipart/form-data; boundary=RequestBoundary");
     clientESP32CAM.addHeader("Content-Length", String(contentLength));
-    int httpResponseCode = clientESP32CAM.POST(payload.data(), payload.size());
+    int httpResponseCode = clientESP32CAM.POST(HTTPpayloadJSON.data(), HTTPpayloadJSON.size());
 
-    if (httpResponseCode == 201) { // Probably 200 OK status code
-        for (int i = 0; i < 2; i++) { // Read: If Image is successfully sent to cloud server ...
+    if (httpResponseCode == 201) {
+        for (int i = 0; i < 2; i++) {
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
             digitalWrite(INDICATOR_PIN, LOW); delay(1000);
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
         }
-    } else if (httpResponseCode == 400) { // Read: If there is an error in sending image to cloud server or image is failed to be identified ...
+    } else if (httpResponseCode == 400) {
         for (int i = 0; i < 4; i++) {
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
             digitalWrite(INDICATOR_PIN, LOW); delay(1000);
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
         }
-    } else if (httpResponseCode == 500) { // Read: If there is an error in cloud server ...
+    } else if (httpResponseCode == 500) {
         for (int i = 0; i < 5; i++) {
             digitalWrite(INDICATOR_PIN, HIGH); delay(1000);
             digitalWrite(INDICATOR_PIN, LOW); delay(1000);
@@ -314,45 +369,52 @@ void taskHTTPPOSTimage(String path) {
         }
     }
 
-    clientESP32CAM.end(); // Terminating HTTP connection
-    doHTTPPOSTimage = false; // Reset HTTP POST flag
+    clientESP32CAM.end();
+    doHTTPPOSTimage = false;
 }
 
+/* setup() function
+- Function to initialize the device
+- Initialize EEPROM memory with .begin() method in size of EEPROM_SIZE
+- Disable brownout detection with WRITE_PERI_REG() function
+- Call taskInitCamera() function to initialize camera
+- Call taskInitMicroSD() function to initialize MicroSD card
+- Configure GPIO pin for Wi-Fi connection indicator
+- Implementing error handling with while loop
+    - Loop breaks if Wi-Fi is connected
+    - Reconnect to Wi-Fi every 3 seconds if Wi-Fi is not connected
+*/
 void setup() {
-    delay(100); // Short delay
+    delay(100);
 
-    Serial.begin(115200); // Initialize serial communication
-
-    /* Camera configuration in setup() */
-    EEPROM.begin(EEPROM_SIZE); // Initialize EEPROM
-    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout detector
+    EEPROM.begin(EEPROM_SIZE);
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
     
-    // Initialize Camera
     taskInitCamera();
 
-    // Initialize MicroSD Card
     taskInitMicroSD();
-    /* End of camera configuration setup */
 
-    pinMode(INDICATOR_PIN, OUTPUT); // Set Indicator LED pin as output
+    pinMode(INDICATOR_PIN, OUTPUT);
 
-    /* Turn off the Indicator LED by set HIGH as parameter.
-    This pin behavior is different than the usual. */
     digitalWrite(INDICATOR_PIN, HIGH);
 
-    //WiFi.config(staticIP, gateway, subnet);
-    WiFi.begin(ssid, password); // Attempting to connect to Wi-Fi network
+    WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) {
         delay(3000);
     }
-
-    ipCAM = WiFi.localIP(); // Store local IP address to global variable
 }
 
+/* loop() function
+- Function to run the device, repeatedly
+- Implementing error handling using if-else statement
+    - in case the device is offline, it will reconnect to Wi-Fi network before doing anything else
+    - only executing the HTTP request task when the Wi-Fi is connected
+- Ensure chained, serial execution of the task by checking the flag value in each if-else statement
+*/
 void loop() {
     if (WiFi.status() == WL_CONNECTED) {
         digitalWrite(INDICATOR_PIN, LOW); // Turn on Indicator LED, Wi-Fi is connected
-        delay(5000); // Delay for each HTTP GET request
+        delay(2000); // Delay for each HTTP GET request
         taskHTTPGETtrigger(); // Check for trigger to capture image with HTTP GET request
         if (doHTTPPOSTimage == true) {
             taskHTTPPOSTimage(imagePath); // Send image to cloud server with HTTP POST request
