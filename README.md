@@ -37,9 +37,16 @@ Navigate to any folder you wish and create a new folder, let's say `test-clone-r
 ```
 git clone https://github.com/gemilvng/trash-automatic-sorting-system.git
 ```
-# 5. Upload the code
-If you wish to upload the code to ESP32-S3, open Powershell terminal under `test-clone-repo\TArS-IoT-System`. Then, run this command: 
+# 5. Upload the program
+To upload the program to ESP32-S3:
+1. open Powershell terminal under `test-clone-repo\TArS-IoT-System`. Then, run this command to open VS Code: 
 ```
 code .
 ```
-and wait until VS Code and Platform IO setup finished (until no pop-ups left). Locate the `build` button, click and wait for the process to be finished. Then, locate the menu to select the USB port connected to your ESP32-S3. Finally, click `upload` button next to `build` button. After the upload process is finished, you can switch the power source of ESP32-S3 to Power Bank instead of Laptop/PC. Repeat the exact same steps if you wish to upload the code to ESP32-CAM, but navigate to `test-clone-repo\TArS-ESP32-CAM` instead.
+2. Wait until VS Code and Platform IO setup finished (until no pop-ups left).
+3. Locate the `build` button, click and wait for the process to be finished.
+4. Locate the menu to select the USB port connected to your ESP32-S3.
+5. Click `upload` button next to `build` button.
+6. After the upload process is finished, you can switch the power source of ESP32-S3 to Power Bank instead of Laptop/PC.
+
+Repeat the exact same steps if you wish to upload the code to ESP32-CAM, but navigate to `test-clone-repo\TArS-ESP32-CAM` instead.
