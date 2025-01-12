@@ -32,7 +32,7 @@ How to read: Interface of device listed in 1st column <-> Interface of device li
 # 3. Installing Platform IO
 All steps needed to install and use Platform IO is in [here](https://docs.platformio.org/en/latest/integration/ide/vscode.html#ide-vscode) (You might need to install VS Code as well).
 # 4. Clone the Repository (in Windows)
-Navigate to any folder you wish and create a new folder, let's say `test-clone-repo`, preferably under `C:\Users\YourComputerName\`. Under `test-clone-repo`, open Powershell terminal and run this following command (make sure [Git](https://git-scm.com/) is installed).
+Navigate to any folder you wish and create a new folder, let's say `test-clone-repo`, preferably under `C:\Users\YourComputerName\`. Under `test-clone-repo`, open Git Bash/Powershell terminal and run this following command (make sure [Git](https://git-scm.com/) is installed).
 
 ```
 git clone https://github.com/gemilvng/trash-automatic-sorting-system.git
